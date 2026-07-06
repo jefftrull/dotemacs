@@ -18,7 +18,7 @@
 (defun apply-macro (macro arg-list)
   (eval
    `(,macro ,@(cl-loop for arg in arg-list
-                    collect `(quote ,arg)))))
+                       collect `(quote ,arg)))))
 
 (defun find-file-first-dir (directories filename)
   (apply-macro 'or (append (mapcar (lambda (dir) (find-file-recursive dir filename))
@@ -40,7 +40,7 @@
 
 (defun find-llvm-root ()
   (let ((llvm-bin (find-file-first-dir
-                    my-cpp-llvm-roots my-cpp-llvm-bin-marker)))
+                   my-cpp-llvm-roots my-cpp-llvm-bin-marker)))
     (when llvm-bin
       (string-remove-suffix "bin/"
                             (file-name-directory (file-truename llvm-bin))))))
@@ -173,6 +173,42 @@
          (c++-ts-mode . my/config-lsp-mode)
          (lsp-completion-mode . my/lsp-mode-setup-completion)))
 
+(defun my/nolint-before-line (str)
+  (save-excursion
+    (beginning-of-line)
+    (insert (concat "// NOLINTNEXTLINE(" str ")"))(indent-according-to-mode)
+    (newline)))
+
+(defun my/collect-errors-fn (acc e)
+  (let ((id (flycheck-error-id e)))
+    (if acc
+        (concat acc ", " id)
+      id)))
+
+(defun my/apply-cpp-code-actions (arg)
+  "Apply fix to the code line at point.
+When called with a prefix, insert a NOLINT directive on the preceding line."
+  (interactive "P")
+  (if (and arg
+           (bound-and-true-p flycheck-mode)
+           (bound-and-true-p lsp-ui-sideline-mode)
+           lsp-ui-sideline-show-diagnostics)
+      (let ((err (seq-reduce #'my/collect-errors-fn
+                             (flycheck-overlay-errors-in (line-beginning-position) (1+ (line-end-position)))
+                             nil)))
+        (when err
+          (my/nolint-before-line err)))
+    (lsp-ui-sideline-apply-code-actions)))
+
+(defun my/explore-flycheck-diag ()
+  (interactive)
+  (when (and (bound-and-true-p flycheck-mode)
+             (bound-and-true-p lsp-ui-sideline-mode)
+             lsp-ui-sideline-show-diagnostics)
+    (dolist (e (flycheck-overlay-errors-in (line-beginning-position) (1+ (line-end-position))))
+      (message (flycheck-error-id e)))))
+
+
 (use-package lsp-ui
   :ensure t
   :after eldoc
@@ -190,11 +226,11 @@
         lsp-ui-imenu-enable t)
   (define-key lsp-ui-mode-map [remap xref-find-definitions] #'lsp-ui-peek-find-definitions)
   (define-key lsp-ui-mode-map [remap xref-find-references] #'lsp-ui-peek-find-references)
-  (define-key lsp-ui-mode-map (kbd "C-<return>") #'lsp-ui-sideline-apply-code-actions)
+  (define-key lsp-ui-mode-map (kbd "C-<return>") #'my/apply-cpp-code-actions)
   (define-key lsp-ui-mode-map (kbd "C-c m") #'lsp-ui-imenu)
   (defun my/config-lsp-ui-mode ()
-      (lsp-enable-imenu)
-      (lsp-ui-mode))
+    (lsp-enable-imenu)
+    (lsp-ui-mode))
   :hook (lsp-mode . my/config-lsp-ui-mode))
 
 (use-package lsp-treemacs
